@@ -1,6 +1,6 @@
 {
     "name": "EtherSoft Inventory Doctor",
-    "version": "17.0.3.1.4",
+    "version": "17.0.3.1.5",
     "category": "Inventory/Inventory",
     "summary": "Free Inventory Diagnostic Scanner for Odoo 17",
     "description": """
