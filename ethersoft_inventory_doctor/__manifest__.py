@@ -1,6 +1,6 @@
 {
     "name": "EtherSoft Inventory Doctor",
-    "version": "17.0.3.1.2",
+    "version": "17.0.3.1.3",
     "category": "Inventory/Inventory",
     "summary": "Free Inventory Diagnostic Scanner for Odoo 17",
     "description": """
@@ -19,6 +19,7 @@ Install EtherSoft Inventory Doctor PRO for detailed diagnosis,
 root-cause analysis, Safe Auto-Fix, Fix Audit Log, and PDF reports.
     """,
     "author": "EtherSoft",
+    "website": "https://www.ethersoft.dev",
     "depends": [
         "mail",
         "stock_account",
@@ -38,6 +39,9 @@ root-cause analysis, Safe Auto-Fix, Fix Audit Log, and PDF reports.
             "ethersoft_inventory_doctor/static/src/dashboard/dashboard.scss",
         ],
     },
+    "images": [
+        "static/description/banner.png",
+    ],
     "license": "LGPL-3",
     "installable": True,
     "application": True,
