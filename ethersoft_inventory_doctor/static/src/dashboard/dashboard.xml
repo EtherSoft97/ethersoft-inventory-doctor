@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="ethersoft_inventory_doctor.Dashboard">
+        <div class="est-doctor-dashboard">
+            <div class="est-doctor-header">
+                <div class="est-doctor-banner" aria-hidden="true">
+                    <svg class="est-doctor-pulse" viewBox="0 0 800 80" preserveAspectRatio="none">
+                        <path d="M0 40 H60 L68 40 L74 28 L82 52 L90 40 H200 L208 40 L214 28 L222 52 L230 40 H400 L408 40 L414 28 L422 52 L430 40 H560 L568 40 L574 28 L582 52 L590 40 H800"/>
+                    </svg>
+                </div>
+                <div class="est-doctor-toolbar">
+                    <div class="est-doctor-brand">
+                        <img class="est-doctor-logo"
+                             src="/ethersoft_inventory_doctor/static/description/icon.png?v=30"
+                             alt=""/>
+                        <div class="est-doctor-copy">
+                            <div class="est-doctor-eyebrow">Inventory Doctor</div>
+                            <h1 class="est-doctor-title">Inventory Health Dashboard</h1>
+                            <div class="est-doctor-subtitle">
+                                <t t-esc="state.data.company_name"/>
+                                <t t-if="state.data.latest_scan_date">
+                                    · Last scan <t t-esc="state.data.latest_scan_date"/>
+                                </t>
+                            </div>
+                            <div t-if="state.loaded"
+                                 t-att-class="'est-doctor-status est-doctor-status--' + statusTone">
+                                <t t-esc="statusMessage"/>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="est-doctor-actions">
+                        <button class="btn btn-link est-doctor-link" t-on-click="onOpenAllIssues">
+                            <t t-if="isPro">View all issues</t>
+                            <t t-else="">View all issues <span class="est-pro-lock">PRO</span></t>
+                        </button>
+                        <button class="btn btn-secondary est-doctor-refresh"
+                                t-on-click="() => this.loadData()"
+                                t-att-disabled="state.loading || state.running">
+                            <i class="fa fa-refresh me-1"/> Refresh
+                        </button>
+                        <button class="btn btn-primary est-doctor-cta"
+                                t-on-click="onRunScan"
+                                t-att-disabled="state.loading || state.running">
+                            <i t-att-class="state.running ? 'fa fa-spinner fa-spin me-1' : 'fa fa-play me-1'"/>
+                            <t t-if="state.running">Scanning…</t>
+                            <t t-else="">Run New Scan</t>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="est-doctor-scroll">
+            <t t-if="state.loading and !state.loaded">
+                <div class="est-doctor-loading">Loading dashboard…</div>
+            </t>
+
+            <t t-else="">
+                <div class="est-kpi-grid">
+                    <div t-att-class="'est-kpi-card est-kpi-card--health est-kpi-card--' + state.data.health_tone">
+                        <div class="est-kpi-label">Health Score</div>
+                        <div class="est-kpi-value"><t t-esc="state.data.health_score"/><span class="est-kpi-unit">/100</span></div>
+                        <div class="est-kpi-meta"><t t-esc="state.data.health_label"/></div>
+                        <button class="btn btn-link btn-sm est-score-help" t-on-click="toggleScoreHelp">How is this calculated?</button>
+                        <div t-if="state.showScoreHelp" class="est-score-help-panel small text-muted">
+                            <t t-esc="scoreBreakdownText"/>
+                        </div>
+                        <div class="est-kpi-icon"><i class="fa fa-heartbeat"/></div>
+                    </div>
+                    <button class="est-kpi-card est-kpi-card--critical" t-on-click="onOpenCritical">
+                        <div class="est-kpi-label">Critical Issues</div>
+                        <div class="est-kpi-value"><t t-esc="state.data.kpis.critical || 0"/></div>
+                        <div class="est-kpi-meta">
+                            <t t-if="isPro">Open · needs attention</t>
+                            <t t-else="">Open · details in PRO</t>
+                        </div>
+                        <div class="est-kpi-icon"><i class="fa fa-exclamation-triangle"/></div>
+                    </button>
+                    <button class="est-kpi-card est-kpi-card--warning" t-on-click="onOpenWarning">
+                        <div class="est-kpi-label">Warnings</div>
+                        <div class="est-kpi-value"><t t-esc="state.data.kpis.warning || 0"/></div>
+                        <div class="est-kpi-meta">
+                            <t t-if="isPro">Open warnings</t>
+                            <t t-else="">Open · details in PRO</t>
+                        </div>
+                        <div class="est-kpi-icon"><i class="fa fa-exclamation-circle"/></div>
+                    </button>
+                    <button class="est-kpi-card est-kpi-card--open" t-on-click="() => this.onOpenIssues()">
+                        <div class="est-kpi-label">Open Issues</div>
+                        <div class="est-kpi-value"><t t-esc="state.data.kpis.open || 0"/></div>
+                        <div class="est-kpi-meta">
+                            <t t-if="isPro">Across all checks</t>
+                            <t t-else="">Across all checks · PRO</t>
+                        </div>
+                        <div class="est-kpi-icon"><i class="fa fa-list"/></div>
+                    </button>
+                    <button class="est-kpi-card est-kpi-card--fixable" t-on-click="onOpenFixable">
+                        <div class="est-kpi-label">
+                            Safe Auto-Fix
+                            <t t-if="!isPro"><span class="est-pro-lock">PRO</span></t>
+                        </div>
+                        <div class="est-kpi-value"><t t-esc="state.data.kpis.fixable || 0"/></div>
+                        <div class="est-kpi-meta">
+                            <t t-if="isPro">Can be fixed automatically</t>
+                            <t t-else="">Available in Inventory Doctor PRO</t>
+                        </div>
+                        <div class="est-kpi-icon"><i class="fa fa-wrench"/></div>
+                    </button>
+                    <button class="est-kpi-card est-kpi-card--fixed" t-on-click="onOpenFixed">
+                        <div class="est-kpi-label">Fixed / Scans</div>
+                        <div class="est-kpi-value">
+                            <t t-esc="state.data.kpis.fixed || 0"/>
+                            <span class="est-kpi-unit"> / <t t-esc="state.data.kpis.scans || 0"/></span>
+                        </div>
+                        <div class="est-kpi-meta">Resolved issues · total scans</div>
+                        <div class="est-kpi-icon"><i class="fa fa-check-circle"/></div>
+                    </button>
+                </div>
+
+                <div class="est-panel-grid">
+                    <div class="est-panel">
+                        <div class="est-panel-header">
+                            <h2>Severity Mix</h2>
+                            <span class="text-muted">Open issues by severity</span>
+                        </div>
+                        <div class="est-severity-body">
+                            <div class="est-donut" t-att-style="donutStyle">
+                                <div class="est-donut-hole">
+                                    <div class="est-donut-number"><t t-esc="state.data.kpis.open || 0"/></div>
+                                    <div class="est-donut-caption">open</div>
+                                </div>
+                            </div>
+                            <div class="est-legend">
+                                <div class="est-legend-row">
+                                    <span class="est-dot est-dot--critical"/> Critical
+                                    <strong class="ms-auto"><t t-esc="state.data.severity_chart.critical || 0"/></strong>
+                                </div>
+                                <div class="est-legend-row">
+                                    <span class="est-dot est-dot--warning"/> Warning
+                                    <strong class="ms-auto"><t t-esc="state.data.severity_chart.warning || 0"/></strong>
+                                </div>
+                                <div class="est-legend-row">
+                                    <span class="est-dot est-dot--info"/> Info
+                                    <strong class="ms-auto"><t t-esc="state.data.severity_chart.info || 0"/></strong>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="est-panel est-panel--wide">
+                        <div class="est-panel-header">
+                            <h2>Top Diagnoses</h2>
+                            <span class="text-muted">
+                                <t t-if="isPro">Open issues by check type</t>
+                                <t t-else="">High-level findings · details in PRO</t>
+                            </span>
+                        </div>
+                        <t t-if="!state.data.type_breakdown.length">
+                            <div class="est-empty-state">
+                                <i class="fa fa-check-circle"/>
+                                <div>All clear — no open inventory issues.</div>
+                            </div>
+                        </t>
+                        <div t-else="" class="est-bars">
+                            <t t-foreach="state.data.type_breakdown" t-as="row" t-key="row.key">
+                                <button class="est-bar-row" t-on-click="() => this.onOpenCheckType(row.key)">
+                                    <div class="est-bar-label">
+                                        <span>
+                                            <t t-esc="row.label"/>
+                                            <t t-if="!isPro"><span class="est-pro-lock">PRO</span></t>
+                                        </span>
+                                        <strong t-esc="row.count"/>
+                                    </div>
+                                    <div class="est-bar-track">
+                                        <div t-att-class="'est-bar-fill est-bar-fill--' + row.severity"
+                                             t-att-style="'width:' + row.pct + '%'"/>
+                                    </div>
+                                </button>
+                            </t>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="est-panel est-panel--scans">
+                    <div class="est-panel-header">
+                        <h2>Recent Scans</h2>
+                        <button class="btn btn-link" t-on-click="onOpenScans">View all</button>
+                    </div>
+                    <t t-if="!state.data.recent_scans.length">
+                        <div class="est-empty-state">
+                            <i class="fa fa-check-circle"/>
+                            <div>No scans yet. Run your first inventory health scan.</div>
+                        </div>
+                    </t>
+                    <div t-else="" class="est-scan-grid">
+                        <t t-foreach="state.data.recent_scans" t-as="scan" t-key="scan.id">
+                            <button class="est-scan-card" t-on-click="() => this.onOpenScan(scan.id)">
+                                <div class="est-scan-card-top">
+                                    <strong t-esc="scan.name"/>
+                                    <span t-att-class="stateClass(scan.state)" t-esc="scan.state"/>
+                                </div>
+                                <div class="est-scan-date text-muted">
+                                    <t t-esc="scan.scan_date_display"/>
+                                    <t t-if="scan.user_name"> · <t t-esc="scan.user_name"/></t>
+                                    <t t-if="scan.health_score !== undefined"> · Score <t t-esc="scan.health_score"/></t>
+                                </div>
+                                <div class="est-scan-stats">
+                                    <span class="est-stat est-stat--critical" t-esc="scan.critical_count + ' critical'"/>
+                                    <span class="est-stat est-stat--warning" t-esc="scan.warning_count + ' warn'"/>
+                                    <span class="est-stat" t-esc="scan.open_count + ' open'"/>
+                                    <span class="est-stat est-stat--fix" t-if="scan.fixable_count"
+                                          t-esc="scan.fixable_count + ' fixable'"/>
+                                </div>
+                            </button>
+                        </t>
+                    </div>
+                </div>
+            </t>
+            </div>
+        </div>
+    </t>
+
+</templates>

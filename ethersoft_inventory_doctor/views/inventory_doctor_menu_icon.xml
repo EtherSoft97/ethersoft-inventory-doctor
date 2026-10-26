@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <record id="menu_est_inventory_doctor_root" model="ir.ui.menu">
+        <field name="web_icon">ethersoft_inventory_doctor,static/description/icon.png</field>
+    </record>
+</odoo>

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="module_category_inventory_doctor" model="ir.module.category">
+        <field name="name">Inventory Doctor</field>
+        <field name="sequence">45</field>
+    </record>
+
+    <!-- Group shell kept in Free so upgrades can reassign/drop legacy ACL cleanly.
+         PRO grants this group to stock managers; Free does not use it for menus. -->
+    <record id="group_inventory_doctor_pro" model="res.groups">
+        <field name="name">Inventory Doctor PRO</field>
+        <field name="category_id" ref="module_category_inventory_doctor"/>
+        <field name="comment">Granted by Inventory Doctor PRO. Not used by the Free app.</field>
+    </record>
+
+    <record id="inventory_doctor_company_rule_scan" model="ir.rule">
+        <field name="name">Inventory Doctor Scan: multi-company</field>
+        <field name="model_id" ref="model_est_inventory_doctor_scan"/>
+        <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+    </record>
+
+    <record id="inventory_doctor_company_rule_issue" model="ir.rule">
+        <field name="name">Inventory Doctor Issue: multi-company</field>
+        <field name="model_id" ref="model_est_inventory_doctor_issue"/>
+        <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+    </record>
+
+</odoo>

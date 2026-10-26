@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_est_inventory_doctor_scan_user,est.inventory.doctor.scan user,model_est_inventory_doctor_scan,stock.group_stock_manager,1,1,1,1
+access_est_inventory_doctor_issue_user,est.inventory.doctor.issue user,model_est_inventory_doctor_issue,stock.group_stock_manager,1,1,1,1
+access_est_inventory_doctor_scan_stock_user,est.inventory.doctor.scan stock user,model_est_inventory_doctor_scan,stock.group_stock_user,1,0,0,0
+access_est_inventory_doctor_issue_stock_user,est.inventory.doctor.issue stock user,model_est_inventory_doctor_issue,stock.group_stock_user,1,0,0,0
