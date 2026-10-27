@@ -1,17 +1,16 @@
-# EtherSoft Inventory Doctor
+﻿# Inventory Doctor
 
-Free inventory diagnostic scanner for Odoo 17.
+Free Odoo inventory diagnostic scanner for stock, valuation, and configuration issues.
+
+## Branches
+
+- `17.0` - Odoo 17
+- `18.0` - Odoo 18
 
 ## Module
 
 Technical name: `ethersoft_inventory_doctor`
 
-Install from Apps after adding this repository path, or publish via [Odoo Apps Store](https://apps.odoo.com).
+License: LGPL-3
 
-## License
-
-LGPL-3
-
-## Author
-
-EtherSoft — https://www.ethersoft.dev
+Author: EtherSoft

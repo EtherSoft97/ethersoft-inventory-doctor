@@ -133,7 +133,7 @@ class EstInventoryDoctorChecker(models.AbstractModel):
             WHERE sl.usage = 'internal'
               AND sq.quantity < 0
               AND (sq.company_id = %s OR sq.company_id IS NULL)
-              AND pt.type = 'product'
+              AND pt.is_storable = true
             ORDER BY sq.quantity ASC
             LIMIT 500
         """, (scan.company_id.id,))
@@ -175,7 +175,7 @@ class EstInventoryDoctorChecker(models.AbstractModel):
             SELECT pp.id
             FROM product_product pp
             JOIN product_template pt ON pt.id = pp.product_tmpl_id
-            WHERE pt.type = 'product'
+            WHERE pt.is_storable = true
               AND pt.active = true
             LIMIT 5000
         """)
@@ -215,7 +215,7 @@ class EstInventoryDoctorChecker(models.AbstractModel):
             SELECT pp.id
             FROM product_product pp
             JOIN product_template pt ON pt.id = pp.product_tmpl_id
-            WHERE pt.type = 'product'
+            WHERE pt.is_storable = true
               AND pt.active = true
             LIMIT 5000
         """)
@@ -273,7 +273,7 @@ class EstInventoryDoctorChecker(models.AbstractModel):
             SELECT pp.id
             FROM product_product pp
             JOIN product_template pt ON pt.id = pp.product_tmpl_id
-            WHERE pt.type = 'product'
+            WHERE pt.is_storable = true
               AND pt.active = true
             LIMIT 5000
         """)
@@ -386,7 +386,7 @@ class EstInventoryDoctorChecker(models.AbstractModel):
             FROM product_product pp
             JOIN product_template pt ON pt.id = pp.product_tmpl_id
             WHERE pt.categ_id = ANY(%s)
-              AND pt.type = 'product'
+              AND pt.is_storable = true
               AND EXISTS (
                   SELECT 1 FROM stock_valuation_layer svl
                   WHERE svl.product_id = pp.id
@@ -537,7 +537,7 @@ class EstInventoryDoctorChecker(models.AbstractModel):
             if not categ.property_cost_method:
                 product_count = self.env["product.template"].search_count([
                     ("categ_id", "child_of", categ.id),
-                    ("type", "=", "product"),
+                    ("is_storable", "=", True),
                 ])
                 if product_count:
                     yield self._issue_vals(
@@ -588,7 +588,7 @@ class EstInventoryDoctorChecker(models.AbstractModel):
 
     def _check_missing_routes(self, scan):
         products = self.env["product.template"].search([
-            ("type", "=", "product"),
+            ("is_storable", "=", True),
             ("route_ids", "=", False),
             ("categ_id.total_route_ids", "=", False),
         ], limit=200)
@@ -639,7 +639,7 @@ class EstInventoryDoctorChecker(models.AbstractModel):
             SELECT pp.id
             FROM product_product pp
             JOIN product_template pt ON pt.id = pp.product_tmpl_id
-            WHERE pt.type = 'product'
+            WHERE pt.is_storable = true
               AND pt.active = true
             LIMIT 5000
         """)

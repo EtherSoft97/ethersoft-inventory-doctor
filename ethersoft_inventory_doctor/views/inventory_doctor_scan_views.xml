@@ -2,10 +2,10 @@
 <odoo>
 
     <record id="view_est_inventory_doctor_scan_list" model="ir.ui.view">
-        <field name="name">est.inventory.doctor.scan.tree</field>
+        <field name="name">est.inventory.doctor.scan.list</field>
         <field name="model">est.inventory.doctor.scan</field>
         <field name="arch" type="xml">
-            <tree>
+            <list>
                 <field name="name"/>
                 <field name="scan_date"/>
                 <field name="user_id"/>
@@ -21,7 +21,7 @@
                 <field name="fixable_count"/>
                 <field name="duration_seconds" optional="hide"/>
                 <field name="odoo_version" optional="hide"/>
-            </tree>
+            </list>
         </field>
     </record>
 
@@ -87,11 +87,7 @@
                         <field name="error_message" nolabel="1"/>
                     </div>
                 </sheet>
-                <div class="oe_chatter">
-                    <field name="message_follower_ids"/>
-                    <field name="activity_ids"/>
-                    <field name="message_ids"/>
-                </div>
+                <chatter/>
             </form>
         </field>
     </record>
@@ -114,23 +110,19 @@
                 <field name="fixed_count"/>
                 <field name="summary_html"/>
                 <templates>
-                    <t t-name="kanban-box">
-                        <div class="oe_kanban_global_click o_est_scan_card">
-                            <div class="d-flex justify-content-between align-items-start mb-2">
-                                <strong class="o_kanban_record_title">
-                                    <field name="name"/>
-                                </strong>
-                                <field name="state" widget="label_selection"
-                                       options="{'classes': {'done': 'success', 'running': 'warning', 'error': 'danger', 'draft': 'default'}}"/>
-                            </div>
-                            <div class="text-muted mb-2">
-                                <field name="scan_date"/> · Score <field name="health_score"/>
-                            </div>
-                            <div class="d-flex flex-wrap gap-2">
-                                <span class="badge text-bg-danger"><field name="critical_count"/> critical</span>
-                                <span class="badge text-bg-warning"><field name="warning_count"/> warn</span>
-                                <span class="badge text-bg-secondary"><field name="open_count"/> open</span>
-                            </div>
+                    <t t-name="card">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <field name="name" class="fw-bolder"/>
+                            <field name="state" widget="label_selection"
+                                   options="{'classes': {'done': 'success', 'running': 'warning', 'error': 'danger', 'draft': 'default'}}"/>
+                        </div>
+                        <div class="text-muted mb-2">
+                            <field name="scan_date"/> · Score <field name="health_score"/>
+                        </div>
+                        <div class="d-flex flex-wrap gap-2">
+                            <span class="badge text-bg-danger"><field name="critical_count"/> critical</span>
+                            <span class="badge text-bg-warning"><field name="warning_count"/> warn</span>
+                            <span class="badge text-bg-secondary"><field name="open_count"/> open</span>
                         </div>
                     </t>
                 </templates>
@@ -141,7 +133,7 @@
     <record id="action_est_inventory_doctor_scan" model="ir.actions.act_window">
         <field name="name">Scan History</field>
         <field name="res_model">est.inventory.doctor.scan</field>
-        <field name="view_mode">tree,kanban,form</field>
+        <field name="view_mode">list,kanban,form</field>
     </record>
 
     <record id="action_est_inventory_doctor_new_scan" model="ir.actions.server">
