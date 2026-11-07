@@ -42,6 +42,7 @@ root-cause analysis, Safe Auto-Fix, Fix Audit Log, and PDF reports.
         ],
     },
     "images": [
+        "static/description/banner.gif",
         "static/description/banner.png",
         "static/description/screenshot_dashboard.png",
         "static/description/screenshot_dashboard_issues.png",
