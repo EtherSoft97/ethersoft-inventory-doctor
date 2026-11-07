@@ -1,6 +1,6 @@
 {
     "name": "Inventory Doctor",
-    "version": "18.0.1.0.1",
+    "version": "18.0.1.0.2",
     "category": "Inventory/Inventory",
     "summary": "Free inventory diagnostic scanner for stock, valuation, and configuration issues",
     "description": """
