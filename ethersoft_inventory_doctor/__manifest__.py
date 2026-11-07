@@ -1,6 +1,6 @@
 {
     "name": "Inventory Doctor",
-    "version": "18.0.1.0.0",
+    "version": "18.0.1.0.1",
     "category": "Inventory/Inventory",
     "summary": "Free inventory diagnostic scanner for stock, valuation, and configuration issues",
     "description": """
@@ -34,7 +34,8 @@ root-cause analysis, Safe Auto-Fix, Fix Audit Log, and PDF reports.
         "views/inventory_doctor_menu_icon.xml",
     ],
     "images": [
-        "static/description/banner.png",
+        "static/description/banner.gif",
+        "static/description/banner_560x280.gif",
         "static/description/screenshot_dashboard.png",
         "static/description/screenshot_dashboard_issues.png",
     ],
