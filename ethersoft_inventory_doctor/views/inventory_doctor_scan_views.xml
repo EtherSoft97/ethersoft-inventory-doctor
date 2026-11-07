@@ -64,7 +64,7 @@
                     <div class="alert alert-info mb-3" role="alert" name="est_pro_upsell"
                          invisible="state != 'done'">
                         <strong>Detailed diagnosis, Safe Auto-Fix, Fix Audit Log, and PDF reports</strong>
-                        are available in EtherSoft Inventory Doctor PRO.
+                        are available in EtherSoft Inventory Doctor PRO (Odoo 19).
                     </div>
 
                     <div class="o_est_issue_why" invisible="state != 'done'">

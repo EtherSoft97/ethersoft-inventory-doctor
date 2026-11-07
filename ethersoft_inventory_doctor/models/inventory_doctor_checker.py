@@ -2,7 +2,7 @@
 
 import logging
 
-from odoo import _, api, fields, models
+from odoo import _, models
 from odoo.tools import float_compare, float_is_zero
 
 from .inventory_doctor_check_registry import get_check_definition
@@ -51,7 +51,6 @@ class EstInventoryDoctorChecker(models.AbstractModel):
         if errors:
             scan.error_message = "\n".join(errors)
 
-
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
@@ -69,55 +68,13 @@ class EstInventoryDoctorChecker(models.AbstractModel):
         vals.update(kwargs)
         return vals
 
-    def _category_ids_with(self, scan, field_name, value):
-        categories = self.env["product.category"].with_company(scan.company_id).search([])
-        return categories.filtered(lambda c: c[field_name] == value).ids
+    def _product_effective_valuation(self, product, company):
+        product = product.with_company(company)
+        return product.valuation or company.inventory_valuation
 
-    def _resolve_svl_stock_move(self, svl):
-        move = svl.stock_move_id
-        if not move and svl.stock_valuation_layer_id:
-            move = svl.stock_valuation_layer_id.stock_move_id
-        return move
-
-    def _infer_valuation_direction(self, move, svl):
-        """Infer in/out when Odoo does not classify the move (unpicked lines, inventory adj)."""
-        src = move.location_id
-        dest = move.location_dest_id
-        src_valued = src._should_be_valued() if src else False
-        dest_valued = dest._should_be_valued() if dest else False
-        if src_valued and not dest_valued:
-            return "out"
-        if not src_valued and dest_valued:
-            return "in"
-        if dest and dest.usage in ("inventory", "customer", "production"):
-            return "out"
-        if src and src.usage in ("inventory", "supplier", "production"):
-            return "in"
-        if svl.quantity < 0 or svl.value < 0:
-            return "out"
-        if svl.quantity > 0 or svl.value > 0:
-            return "in"
-        return False
-
-    def _prepare_forced_account_move_vals(self, move, svl, company):
-        """Build a stock valuation journal entry when standard Odoo classification is empty."""
-        move = move.with_company(company)
-        journal_id, acc_src, acc_dest, acc_valuation = move._get_accounting_data_for_valuation()
-        direction = self._infer_valuation_direction(move, svl)
-        qty = svl.quantity
-        cost = svl.value
-        description = svl.description or move.display_name
-        force_date = fields.Date.to_date(svl.create_date) if svl.create_date else fields.Date.context_today(self)
-        move = move.with_context(force_period_date=force_date)
-        if direction == "out":
-            return move._prepare_account_move_vals(
-                acc_valuation, acc_dest, journal_id, qty, description, svl.id, -cost
-            )
-        if direction == "in":
-            return move._prepare_account_move_vals(
-                acc_src, acc_valuation, journal_id, qty, description, svl.id, cost
-            )
-        return False
+    def _product_effective_cost_method(self, product, company):
+        product = product.with_company(company)
+        return product.cost_method or company.cost_method
 
     # ------------------------------------------------------------------
     # Check: Negative stock
@@ -166,7 +123,7 @@ class EstInventoryDoctorChecker(models.AbstractModel):
             )
 
     # ------------------------------------------------------------------
-    # Check: Stock without valuation
+    # Check: Stock without value
     # ------------------------------------------------------------------
 
     def _check_stock_without_valuation(self, scan):
@@ -181,32 +138,38 @@ class EstInventoryDoctorChecker(models.AbstractModel):
         """)
         product_ids = [row[0] for row in self.env.cr.fetchall()]
         products = self.env["product.product"].browse(product_ids).with_company(company)
-        real_time_categ_ids = set(self._category_ids_with(scan, "property_valuation", "real_time"))
         for product in products:
-            if product.categ_id.id not in real_time_categ_ids:
-                continue
             if float_compare(product.qty_available, 0, precision_rounding=product.uom_id.rounding) <= 0:
                 continue
-            if not float_is_zero(product.quantity_svl, precision_rounding=product.uom_id.rounding):
+            if not float_is_zero(product.total_value, precision_rounding=company.currency_id.rounding):
                 continue
+            if not float_is_zero(product.standard_price, precision_rounding=0.01) and \
+               not float_is_zero(product.avg_cost, precision_rounding=0.01):
+                # Has cost but still zero total value — still report
+                pass
             yield self._issue_vals(
                 "stock_without_valuation",
                 "critical",
-                _("%s has stock but no valuation layers") % product.display_name,
+                _("%s has stock but zero inventory value") % product.display_name,
                 product_id=product.id,
                 categ_id=product.categ_id.id,
                 qty_actual=product.qty_available,
                 qty_expected=0.0,
                 qty_affected=product.qty_available,
+                value_affected=product.total_value,
                 description=_(
-                    "Physical quantity: %(qty)s. Valuation quantity: 0.",
+                    "Physical quantity: %(qty)s. Inventory value: %(val)s. "
+                    "Standard price: %(std)s. Average cost: %(avg)s.",
                     qty=product.qty_available,
+                    val=product.total_value,
+                    std=product.standard_price,
+                    avg=product.avg_cost,
                 ),
                 fix_available=False,
             )
 
     # ------------------------------------------------------------------
-    # Check: Valuation discrepancy
+    # Check: Valuation discrepancy (FIFO remaining qty vs on-hand)
     # ------------------------------------------------------------------
 
     def _check_valuation_discrepancy(self, scan):
@@ -221,11 +184,14 @@ class EstInventoryDoctorChecker(models.AbstractModel):
         """)
         product_ids = [row[0] for row in self.env.cr.fetchall()]
         products = self.env["product.product"].browse(product_ids).with_company(company)
-        real_time_categ_ids = set(self._category_ids_with(scan, "property_valuation", "real_time"))
         for product in products:
-            if product.categ_id.id not in real_time_categ_ids:
+            if self._product_effective_cost_method(product, company) != "fifo":
                 continue
-            qty_diff = product.qty_available - product.quantity_svl
+            if float_is_zero(product.qty_available, precision_rounding=product.uom_id.rounding):
+                continue
+            remaining_by_move = product._get_remaining_moves().get(product, {})
+            remaining_qty = sum(remaining_by_move.values()) if remaining_by_move else 0.0
+            qty_diff = product.qty_available - remaining_qty
             if float_is_zero(qty_diff, precision_rounding=product.uom_id.rounding):
                 continue
             if float_compare(abs(qty_diff), 0.0001, precision_rounding=product.uom_id.rounding) <= 0:
@@ -236,27 +202,27 @@ class EstInventoryDoctorChecker(models.AbstractModel):
             yield self._issue_vals(
                 "valuation_discrepancy",
                 severity,
-                _("%(product)s: qty mismatch (stock %(stock)s vs SVL %(svl)s)") % {
+                _("%(product)s: qty mismatch (on-hand %(stock)s vs FIFO remaining %(rem)s)") % {
                     "product": product.display_name,
                     "stock": product.qty_available,
-                    "svl": product.quantity_svl,
+                    "rem": remaining_qty,
                 },
                 product_id=product.id,
                 categ_id=product.categ_id.id,
                 qty_actual=product.qty_available,
-                qty_expected=product.quantity_svl,
+                qty_expected=remaining_qty,
                 qty_affected=qty_diff,
-                value_affected=product.value_svl,
+                value_affected=product.total_value,
                 value_difference=value_diff,
                 description=_(
-                    "On-hand: %(stock)s. Valuation layers total: %(svl)s. Difference: %(diff)s.",
+                    "On-hand: %(stock)s. FIFO remaining stack: %(rem)s. Difference: %(diff)s.",
                     stock=product.qty_available,
-                    svl=product.quantity_svl,
+                    rem=remaining_qty,
                     diff=qty_diff,
                 ),
                 diagnosis_data={
                     "qty_on_hand": product.qty_available,
-                    "qty_svl": product.quantity_svl,
+                    "qty_fifo_remaining": remaining_qty,
                     "difference": qty_diff,
                     "estimated_value_difference": value_diff,
                 },
@@ -295,10 +261,7 @@ class EstInventoryDoctorChecker(models.AbstractModel):
                 recommendation = _(
                     "Set the product cost from average valuation or last purchase price."
                 )
-                fix_available = (
-                    product.valuation == "real_time"
-                    and not float_is_zero(product.avg_cost, precision_rounding=0.01)
-                )
+                fix_available = not float_is_zero(product.avg_cost, precision_rounding=0.01)
                 fix_safe = fix_available
             elif product.avg_cost and product.standard_price:
                 ratio = product.standard_price / product.avg_cost if product.avg_cost else 0
@@ -323,12 +286,12 @@ class EstInventoryDoctorChecker(models.AbstractModel):
                 product_id=product.id,
                 categ_id=product.categ_id.id,
                 qty_actual=product.qty_available,
-                value_affected=product.value_svl,
+                value_affected=product.total_value,
                 description=_(
-                    "Standard price: %(std)s. Average cost: %(avg)s. Valuation value: %(val)s.",
+                    "Standard price: %(std)s. Average cost: %(avg)s. Inventory value: %(val)s.",
                     std=product.standard_price,
                     avg=product.avg_cost,
-                    val=product.value_svl,
+                    val=product.total_value,
                 ),
                 recommendation=recommendation,
                 fix_available=fix_available,
@@ -337,7 +300,7 @@ class EstInventoryDoctorChecker(models.AbstractModel):
                 diagnosis_data={
                     "standard_price": product.standard_price,
                     "average_cost": product.avg_cost,
-                    "valuation_value": product.value_svl,
+                    "total_value": product.total_value,
                 },
             )
 
@@ -346,144 +309,146 @@ class EstInventoryDoctorChecker(models.AbstractModel):
     # ------------------------------------------------------------------
 
     def _check_fifo_inconsistency(self, scan):
-        fifo_categ_ids = self._category_ids_with(scan, "property_cost_method", "fifo")
-        if not fifo_categ_ids:
-            return
-
-        self.env.cr.execute("""
-            SELECT svl.id, svl.product_id, svl.remaining_qty, svl.remaining_value
-            FROM stock_valuation_layer svl
-            JOIN product_product pp ON pp.id = svl.product_id
-            JOIN product_template pt ON pt.id = pp.product_tmpl_id
-            WHERE svl.company_id = %s
-              AND pt.categ_id = ANY(%s)
-              AND (svl.remaining_qty < 0 OR svl.remaining_value < 0)
-            ORDER BY svl.remaining_qty ASC
-            LIMIT 200
-        """, (scan.company_id.id, fifo_categ_ids))
-        for svl_id, product_id, rem_qty, rem_val in self.env.cr.fetchall():
-            product = self.env["product.product"].browse(product_id)
-            yield self._issue_vals(
-                "fifo_inconsistency",
-                "critical",
-                _("%(product)s: FIFO layer with negative remaining") % {
-                    "product": product.display_name,
-                },
-                product_id=product_id,
-                svl_id=svl_id,
-                qty_actual=rem_qty,
-                value_affected=rem_val,
-                description=_(
-                    "Layer remaining qty: %(qty)s, remaining value: %(val)s.",
-                    qty=rem_qty,
-                    val=rem_val,
-                ),
-                fix_available=False,
-            )
-
+        company = scan.company_id
         self.env.cr.execute("""
             SELECT pp.id
             FROM product_product pp
             JOIN product_template pt ON pt.id = pp.product_tmpl_id
-            WHERE pt.categ_id = ANY(%s)
-              AND pt.is_storable = true
-              AND EXISTS (
-                  SELECT 1 FROM stock_valuation_layer svl
-                  WHERE svl.product_id = pp.id
-                    AND svl.company_id = %s
-                    AND svl.quantity < 0
-                    AND svl.stock_valuation_layer_id IS NULL
-              )
-            LIMIT 100
-        """, (fifo_categ_ids, scan.company_id.id))
-        for (product_id,) in self.env.cr.fetchall():
-            product = self.env["product.product"].with_company(scan.company_id).browse(product_id)
-            if float_is_zero(product.quantity_svl, precision_rounding=product.uom_id.rounding):
+            WHERE pt.is_storable = true
+              AND pt.active = true
+            LIMIT 3000
+        """)
+        product_ids = [row[0] for row in self.env.cr.fetchall()]
+        products = self.env["product.product"].browse(product_ids).with_company(company)
+        reported = 0
+        for product in products:
+            if self._product_effective_cost_method(product, company) != "fifo":
+                continue
+            if float_compare(product.qty_available, 0, precision_rounding=product.uom_id.rounding) <= 0:
+                continue
+            remaining_by_move = product._get_remaining_moves().get(product, {})
+            if not remaining_by_move:
                 yield self._issue_vals(
                     "fifo_inconsistency",
-                    "warning",
-                    _("%s: FIFO outgoing layer without linked consumption") % product.display_name,
-                    product_id=product_id,
+                    "critical",
+                    _("%s: on-hand stock but empty FIFO remaining stack") % product.display_name,
+                    product_id=product.id,
+                    categ_id=product.categ_id.id,
+                    qty_actual=product.qty_available,
+                    description=_(
+                        "On-hand quantity is %(qty)s but no valued incoming moves remain "
+                        "in the FIFO stack.",
+                        qty=product.qty_available,
+                    ),
                     fix_available=False,
                 )
+                reported += 1
+                if reported >= 200:
+                    return
+                continue
+            for move, rem_qty in remaining_by_move.items():
+                if float_compare(rem_qty, 0, precision_rounding=product.uom_id.rounding) < 0:
+                    yield self._issue_vals(
+                        "fifo_inconsistency",
+                        "critical",
+                        _("%(product)s: FIFO move with negative remaining") % {
+                            "product": product.display_name,
+                        },
+                        product_id=product.id,
+                        stock_move_id=move.id,
+                        qty_actual=rem_qty,
+                        value_affected=move.remaining_value,
+                        description=_(
+                            "Move %(move)s remaining qty: %(qty)s, remaining value: %(val)s.",
+                            move=move.display_name,
+                            qty=rem_qty,
+                            val=move.remaining_value,
+                        ),
+                        fix_available=False,
+                    )
+                    reported += 1
+                    if reported >= 200:
+                        return
 
     # ------------------------------------------------------------------
-    # Check: Missing journal entries
+    # Check: Missing journal entries (location-valued real-time moves)
     # ------------------------------------------------------------------
 
     def _check_missing_journal_entries(self, scan):
-        real_time_categ_ids = self._category_ids_with(scan, "property_valuation", "real_time")
-        if not real_time_categ_ids:
-            return
-
-        self.env.cr.execute("""
-            SELECT svl.id, svl.product_id, svl.value,
-                   COALESCE(svl.stock_move_id, parent.stock_move_id) AS move_id
-            FROM stock_valuation_layer svl
-            JOIN product_product pp ON pp.id = svl.product_id
-            JOIN product_template pt ON pt.id = pp.product_tmpl_id
-            LEFT JOIN stock_valuation_layer parent
-                   ON parent.id = svl.stock_valuation_layer_id
-            WHERE svl.company_id = %s
-              AND pt.categ_id = ANY(%s)
-              AND svl.account_move_id IS NULL
-              AND ABS(svl.value) > 0.0001
-            ORDER BY svl.create_date DESC
-            LIMIT 300
-        """, (scan.company_id.id, real_time_categ_ids))
-        for svl_id, product_id, value, move_id in self.env.cr.fetchall():
-            product = self.env["product.product"].browse(product_id)
-            can_autofix = bool(move_id)
+        company = scan.company_id
+        Move = self.env["stock.move"].with_company(company)
+        moves = Move.search([
+            ("company_id", "=", company.id),
+            ("state", "=", "done"),
+            ("account_move_id", "=", False),
+            "|", ("is_in", "=", True), ("is_out", "=", True),
+            ("product_id.is_storable", "=", True),
+        ], order="date desc", limit=500)
+        for move in moves:
+            if self._product_effective_valuation(move.product_id, company) != "real_time":
+                continue
+            if not move._should_create_account_move():
+                continue
+            if float_is_zero(move.value, precision_rounding=company.currency_id.rounding):
+                continue
+            product = move.product_id
             yield self._issue_vals(
                 "missing_journal_entry",
                 "warning",
-                _("%(product)s: valuation layer without journal entry") % {
+                _("%(product)s: valued move without journal entry") % {
                     "product": product.display_name,
                 },
-                product_id=product_id,
-                svl_id=svl_id,
-                stock_move_id=move_id or False,
-                value_affected=value,
+                product_id=product.id,
+                stock_move_id=move.id,
+                value_affected=move.value,
                 recommendation=_(
-                    "Use auto-fix to regenerate missing journal entries when a stock "
-                    "move is linked."
-                ) if can_autofix else _(
-                    "This layer has no linked stock move. Review and post manually."
+                    "Use auto-fix to regenerate the missing journal entry for this "
+                    "location-valued stock move."
                 ),
-                fix_available=can_autofix,
-                fix_safe=can_autofix,
-                fix_message=_("Create missing journal entry via valuation layer validation")
-                if can_autofix else False,
+                fix_available=True,
+                fix_safe=True,
+                fix_message=_("Create missing journal entry from stock move"),
             )
 
     # ------------------------------------------------------------------
-    # Check: Orphaned SVL
+    # Check: Unvalued stock moves (replaces orphaned SVL in Odoo 19)
     # ------------------------------------------------------------------
 
     def _check_orphaned_svl(self, scan):
-        self.env.cr.execute("""
-            SELECT svl.id, svl.product_id, svl.quantity, svl.value
-            FROM stock_valuation_layer svl
-            WHERE svl.company_id = %s
-              AND svl.stock_move_id IS NULL
-              AND svl.stock_valuation_layer_id IS NULL
-              AND svl.account_move_line_id IS NULL
-              AND ABS(svl.quantity) > 0.0001
-            ORDER BY svl.create_date DESC
-            LIMIT 200
-        """, (scan.company_id.id,))
-        for svl_id, product_id, qty, value in self.env.cr.fetchall():
-            product = self.env["product.product"].browse(product_id)
+        """Done valued moves with zero value while product has a positive cost."""
+        company = scan.company_id
+        Move = self.env["stock.move"].with_company(company)
+        moves = Move.search([
+            ("company_id", "=", company.id),
+            ("state", "=", "done"),
+            "|", ("is_in", "=", True), ("is_out", "=", True),
+            ("product_id.is_storable", "=", True),
+        ], order="date desc", limit=400)
+        for move in moves:
+            if not float_is_zero(move.value, precision_rounding=company.currency_id.rounding):
+                continue
+            if float_is_zero(move.quantity, precision_rounding=move.product_uom.rounding):
+                continue
+            product = move.product_id.with_company(company)
+            if float_is_zero(product.standard_price, precision_rounding=0.01) and \
+               float_is_zero(product.avg_cost, precision_rounding=0.01):
+                continue
             yield self._issue_vals(
                 "orphaned_svl",
                 "warning",
-                _("%(product)s: orphaned valuation layer") % {
+                _("%(product)s: valued move with zero value") % {
                     "product": product.display_name,
                 },
-                product_id=product_id,
-                svl_id=svl_id,
-                qty_affected=qty,
-                value_affected=value,
+                product_id=product.id,
+                stock_move_id=move.id,
+                qty_affected=move.quantity,
+                value_affected=0.0,
+                description=_(
+                    "Move %(move)s is marked valued but has value 0. "
+                    "Product standard price: %(std)s.",
+                    move=move.display_name,
+                    std=product.standard_price,
+                ),
                 fix_available=False,
             )
 
@@ -494,24 +459,25 @@ class EstInventoryDoctorChecker(models.AbstractModel):
     def _check_missing_inventory_accounts(self, scan):
         company = scan.company_id
         categories = self.env["product.category"].with_company(company).search([])
+        company_has_valuation = bool(company.account_stock_valuation_id)
+        company_has_journal = bool(company.account_stock_journal_id)
+
         for categ in categories:
-            if categ.property_valuation != "real_time":
+            valuation = categ.property_valuation or company.inventory_valuation
+            if valuation != "real_time":
                 continue
             accounts_missing = []
-            if not categ.property_stock_valuation_account_id:
+            if not categ.property_stock_valuation_account_id and not company_has_valuation:
                 accounts_missing.append(_("Stock Valuation Account"))
-            if not categ.property_stock_account_output_categ_id:
-                accounts_missing.append(_("Stock Output Account"))
-            if not categ.property_stock_account_input_categ_id:
-                accounts_missing.append(_("Stock Input Account"))
+            if not categ.property_stock_journal and not company_has_journal:
+                accounts_missing.append(_("Stock Journal"))
             if not accounts_missing:
                 continue
 
             parent = categ.parent_id.with_company(company) if categ.parent_id else False
             can_inherit = bool(parent) and any([
                 parent.property_stock_valuation_account_id,
-                parent.property_stock_account_output_categ_id,
-                parent.property_stock_account_input_categ_id,
+                parent.property_stock_journal,
             ])
 
             yield self._issue_vals(
@@ -524,7 +490,7 @@ class EstInventoryDoctorChecker(models.AbstractModel):
                 categ_id=categ.id,
                 fix_available=can_inherit,
                 fix_safe=can_inherit,
-                fix_message=_("Copy stock accounts from parent category"),
+                fix_message=_("Copy stock valuation settings from parent category"),
             )
 
     # ------------------------------------------------------------------
@@ -532,24 +498,36 @@ class EstInventoryDoctorChecker(models.AbstractModel):
     # ------------------------------------------------------------------
 
     def _check_inconsistent_cost_method(self, scan):
-        categories = self.env["product.category"].with_company(scan.company_id).search([])
+        company = scan.company_id
+        if not company.cost_method:
+            yield self._issue_vals(
+                "inconsistent_cost_method",
+                "critical",
+                _("Company %(company)s has no default costing method") % {
+                    "company": company.display_name,
+                },
+                description=_("Set a default costing method on the company."),
+                fix_available=False,
+            )
+        categories = self.env["product.category"].with_company(company).search([])
         for categ in categories:
-            if not categ.property_cost_method:
-                product_count = self.env["product.template"].search_count([
-                    ("categ_id", "child_of", categ.id),
-                    ("is_storable", "=", True),
-                ])
-                if product_count:
-                    yield self._issue_vals(
-                        "inconsistent_cost_method",
-                        "critical",
-                        _("%(categ)s has no costing method configured") % {
-                            "categ": categ.display_name,
-                        },
-                        categ_id=categ.id,
-                        description=_("%s storable products affected.", product_count),
-                        fix_available=False,
-                    )
+            if categ.property_cost_method or company.cost_method:
+                continue
+            product_count = self.env["product.template"].search_count([
+                ("categ_id", "child_of", categ.id),
+                ("is_storable", "=", True),
+            ])
+            if product_count:
+                yield self._issue_vals(
+                    "inconsistent_cost_method",
+                    "critical",
+                    _("%(categ)s has no costing method configured") % {
+                        "categ": categ.display_name,
+                    },
+                    categ_id=categ.id,
+                    description=_("%s storable products affected.", product_count),
+                    fix_available=False,
+                )
 
     # ------------------------------------------------------------------
     # Check: Duplicate products
@@ -645,11 +623,8 @@ class EstInventoryDoctorChecker(models.AbstractModel):
         """)
         product_ids = [row[0] for row in self.env.cr.fetchall()]
         products = self.env["product.product"].browse(product_ids).with_company(company)
-        real_time_categ_ids = set(self._category_ids_with(scan, "property_valuation", "real_time"))
         for product in products:
-            if product.categ_id.id not in real_time_categ_ids:
-                continue
-            if product.value_svl >= 0:
+            if product.total_value >= 0:
                 continue
             yield self._issue_vals(
                 "negative_valuation",
@@ -657,8 +632,8 @@ class EstInventoryDoctorChecker(models.AbstractModel):
                 _("%s has negative inventory valuation") % product.display_name,
                 product_id=product.id,
                 categ_id=product.categ_id.id,
-                value_affected=product.value_svl,
-                qty_actual=product.quantity_svl,
+                value_affected=product.total_value,
+                qty_actual=product.qty_available,
                 fix_available=False,
             )
 

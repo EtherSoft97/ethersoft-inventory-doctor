@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Structured metadata for Inventory Doctor diagnostic checks."""
+"""Structured metadata for Inventory Doctor diagnostic checks (Odoo 19)."""
 
 from odoo import _
 
@@ -39,22 +39,22 @@ def get_check_definitions():
             "resolution_type": "manual",
         },
         "stock_without_valuation": {
-            "name": _("Stock Without Valuation"),
+            "name": _("Stock Without Value"),
             "category": "valuation",
             "default_severity": "critical",
             "why_it_matters": _(
-                "Real-time valued products with physical stock should have "
-                "valuation layers. Missing layers mean inventory value is not "
-                "recorded in accounting."
+                "Products with physical stock should have a computed inventory "
+                "value. Zero value usually means missing costs or incomplete "
+                "valued stock moves."
             ),
             "possible_causes": [
-                _("Valuation method was changed after moves were processed"),
-                _("Incomplete stock move processing"),
-                _("Manual data modification"),
+                _("Standard price never set"),
+                _("Incoming moves not valued"),
+                _("Costing configuration problem"),
             ],
             "recommended_action": _(
-                "Run a stock valuation report and reprocess done moves or "
-                "create a revaluation entry."
+                "Review product cost, valued stock moves, and the Inventory "
+                "Valuation report."
             ),
             "auto_fix": False,
             "fix_safety": "manual",
@@ -65,19 +65,18 @@ def get_check_definitions():
             "category": "valuation",
             "default_severity": "critical",
             "why_it_matters": _(
-                "The physical quantity and stock valuation recorded in Odoo do "
-                "not appear to be aligned. This can affect inventory valuation "
-                "and accounting reporting."
+                "For FIFO products, on-hand quantity should match the remaining "
+                "quantity in the valued incoming move stack. A mismatch affects "
+                "cost consumption and inventory value."
             ),
             "possible_causes": [
                 _("Incorrect inventory adjustment"),
-                _("Missing valuation layer"),
                 _("Incorrect stock move"),
                 _("Manual data modification"),
                 _("Costing configuration problem"),
             ],
             "recommended_action": _(
-                "Review the related stock moves and valuation layers before "
+                "Review related stock moves and remaining FIFO quantities before "
                 "applying a correction."
             ),
             "auto_fix": False,
@@ -109,16 +108,16 @@ def get_check_definitions():
             "category": "valuation",
             "default_severity": "critical",
             "why_it_matters": _(
-                "FIFO layers with negative remaining quantity or broken linkage "
+                "FIFO remaining stacks with missing or negative remaining quantity "
                 "cause incorrect cost consumption on deliveries."
             ),
             "possible_causes": [
-                _("Over-consumption of incoming layers"),
+                _("Over-consumption of incoming moves"),
                 _("Negative stock event"),
-                _("Manual layer correction"),
+                _("Manual value correction"),
             ],
             "recommended_action": _(
-                "Inspect linked stock moves chronologically and correct layers manually."
+                "Inspect linked stock moves chronologically and correct values manually."
             ),
             "auto_fix": False,
             "fix_safety": "manual",
@@ -129,7 +128,7 @@ def get_check_definitions():
             "category": "accounting",
             "default_severity": "warning",
             "why_it_matters": _(
-                "Real-time inventory valuation should post accounting entries. "
+                "Location-valued perpetual moves should post accounting entries. "
                 "Missing entries create a gap between stock and the general ledger."
             ),
             "possible_causes": [
@@ -138,28 +137,28 @@ def get_check_definitions():
                 _("Accounting lock or posting error"),
             ],
             "recommended_action": _(
-                "Regenerate the journal entry when a stock move is linked; "
-                "otherwise review the layer manually."
+                "Regenerate the journal entry from the stock move when possible."
             ),
             "auto_fix": True,
             "fix_safety": "safe",
             "resolution_type": "auto_fix",
         },
         "orphaned_svl": {
-            "name": _("Orphaned Valuation Layer"),
+            "name": _("Unvalued Stock Move"),
             "category": "valuation",
             "default_severity": "warning",
             "why_it_matters": _(
-                "Valuation layers without stock move or parent linkage are "
-                "difficult to reconcile and may indicate data corruption."
+                "Valued stock moves with zero value are difficult to reconcile and "
+                "may understate inventory or COGS."
             ),
             "possible_causes": [
-                _("Manual SQL correction"),
-                _("Import without move linkage"),
-                _("Cancelled move left layer behind"),
+                _("Product cost was zero when the move was done"),
+                _("Manual value reset"),
+                _("Incomplete valuation computation"),
             ],
             "recommended_action": _(
-                "Open the valuation layer, review its origin, and re-link or remove it."
+                "Open the stock move, review its value justification, and adjust "
+                "valuation if needed."
             ),
             "auto_fix": False,
             "fix_safety": "manual",
@@ -170,15 +169,17 @@ def get_check_definitions():
             "category": "configuration",
             "default_severity": "warning",
             "why_it_matters": _(
-                "Automated inventory valuation requires stock input, output, "
-                "and valuation accounts on product categories."
+                "Perpetual inventory valuation requires a stock valuation account "
+                "and stock journal (on the category or company)."
             ),
             "possible_causes": [
                 _("New category created without accounts"),
+                _("Company stock accounts not configured"),
                 _("Parent category accounts not inherited"),
             ],
             "recommended_action": _(
-                "Configure accounts on the category or inherit from the parent category."
+                "Configure the stock valuation account and journal on the category "
+                "or company, or inherit from the parent category."
             ),
             "auto_fix": True,
             "fix_safety": "safe",
@@ -194,10 +195,10 @@ def get_check_definitions():
             ),
             "possible_causes": [
                 _("Category created without costing defaults"),
-                _("Property not set after module install"),
+                _("Company default costing method not set"),
             ],
             "recommended_action": _(
-                "Set FIFO, AVCO, or Standard costing on the product category."
+                "Set FIFO, AVCO, or Standard costing on the product category or company."
             ),
             "auto_fix": False,
             "fix_safety": "manual",
@@ -269,12 +270,12 @@ def get_check_definitions():
                 "COGS calculation."
             ),
             "possible_causes": [
-                _("Over-consumption of valuation layers"),
+                _("Over-consumption of valued incoming moves"),
                 _("Negative stock combined with FIFO/AVCO"),
                 _("Manual revaluation error"),
             ],
             "recommended_action": _(
-                "Investigate valuation layers and post a revaluation adjustment."
+                "Investigate valued stock moves and post a valuation adjustment."
             ),
             "auto_fix": False,
             "fix_safety": "manual",

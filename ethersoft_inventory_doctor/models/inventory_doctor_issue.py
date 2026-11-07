@@ -78,7 +78,6 @@ class EstInventoryDoctorIssue(models.Model):
     product_tmpl_id = fields.Many2one("product.template", index=True)
     categ_id = fields.Many2one("product.category", index=True)
     stock_move_id = fields.Many2one("stock.move", index=True)
-    svl_id = fields.Many2one("stock.valuation.layer", index=True)
     account_move_id = fields.Many2one("account.move", index=True)
     quant_id = fields.Many2one("stock.quant", index=True)
     warehouse_id = fields.Many2one("stock.warehouse", index=True)
@@ -116,12 +115,12 @@ class EstInventoryDoctorIssue(models.Model):
     def _selection_check_type():
         return [
             ("negative_stock", "Negative Stock"),
-            ("stock_without_valuation", "Stock Without Valuation"),
+            ("stock_without_valuation", "Stock Without Value"),
             ("valuation_discrepancy", "Valuation Discrepancy"),
             ("abnormal_cost", "Abnormal Cost"),
             ("fifo_inconsistency", "FIFO Inconsistency"),
             ("missing_journal_entry", "Missing Journal Entry"),
-            ("orphaned_svl", "Orphaned Valuation Layer"),
+            ("orphaned_svl", "Unvalued Stock Move"),
             ("missing_inventory_account", "Missing Inventory Account"),
             ("inconsistent_cost_method", "Inconsistent Costing Method"),
             ("duplicate_product", "Duplicate Product"),
@@ -192,7 +191,7 @@ class EstInventoryDoctorIssue(models.Model):
     def _enrich_affected_records(self, vals):
         """Derive template / category / location / warehouse from product or move.
 
-        Most checks only pass ``product_id`` (and optionally SVL / stock move).
+        Most checks only pass ``product_id`` (and optionally stock move).
         The Affected Records form expects the related master-data fields too.
         """
         vals = dict(vals)
@@ -218,15 +217,8 @@ class EstInventoryDoctorIssue(models.Model):
                     vals["location_id"] = src.id
                 elif dest:
                     vals["location_id"] = dest.id
-
-        if vals.get("svl_id"):
-            svl = self.env["stock.valuation.layer"].browse(vals["svl_id"])
-            if not vals.get("account_move_id") and svl.account_move_id:
-                vals["account_move_id"] = svl.account_move_id.id
-            if not vals.get("product_id") and svl.product_id:
-                vals["product_id"] = svl.product_id.id
-                vals.setdefault("product_tmpl_id", svl.product_id.product_tmpl_id.id)
-                vals.setdefault("categ_id", svl.product_id.categ_id.id)
+            if not vals.get("account_move_id") and move.account_move_id:
+                vals["account_move_id"] = move.account_move_id.id
 
         if vals.get("location_id") and not vals.get("warehouse_id"):
             location = self.env["stock.location"].browse(vals["location_id"])
